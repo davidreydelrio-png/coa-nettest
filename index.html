@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Call of API · Network test</title>
+<style>
+:root{color-scheme:dark;--bg:#0b0820;--panel:#1a1338;--line:rgba(255,255,255,.14);--fg:#f6f2ff;--muted:#b9b0d9;--ok:#5be37d;--warn:#ffcf3a;--bad:#ff4d5e;--accent:#52f0ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;padding:20px 16px 40px}
+main{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+h1{margin:0;font-size:24px;letter-spacing:.02em}
+h1 span{color:var(--warn)}
+p{margin:0;color:var(--muted)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center}
+.dot{width:22px;height:22px;border-radius:50%;background:#3a3460;display:grid;place-items:center;font-weight:800;font-size:13px}
+.dot.run{background:var(--accent);animation:p 1s infinite}.dot.ok{background:var(--ok);color:#0b2a14}.dot.warn{background:var(--warn);color:#2a1d00}.dot.bad{background:var(--bad);color:#2a0007}
+@keyframes p{50%{opacity:.4}}
+.t{font-weight:700}.d{color:var(--muted);font-size:13px}
+.v{font-variant-numeric:tabular-nums;font-weight:700;text-align:right;white-space:nowrap}
+button{font:700 16px system-ui,sans-serif;border:0;border-radius:12px;padding:12px 18px;background:var(--warn);color:#1a1000;cursor:pointer}
+button.alt{background:#2c2456;color:var(--fg)}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+#verdict{border-radius:14px;padding:14px;font-weight:700;border:1px solid var(--line);background:var(--panel)}
+#verdict.ok{border-color:var(--ok)}#verdict.warn{border-color:var(--warn)}#verdict.bad{border-color:var(--bad)}
+textarea{width:100%;min-height:150px;background:#0f0a26;color:var(--fg);border:1px solid var(--line);border-radius:12px;padding:10px;font:12px/1.4 ui-monospace,Consolas,monospace}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+label{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:14px}
+select{background:#0f0a26;color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:8px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Call of API · <span>Network test</span></h1>
+  <p>Checks whether this device and network can run the live multiplayer version. It takes about 20 seconds.</p>
+  <div class="row">
+    <label>I'm on <select id="net"><option>EG laptop · office / VPN</option><option>EG laptop · home Wi-Fi</option><option>Phone · mobile data</option><option>Phone · office Wi-Fi</option><option>Other</option></select></label>
+  </div>
+  <div class="row"><button id="go" type="button">Run test</button></div>
+
+  <div class="card" id="c-http"><div class="dot">1</div><div><div class="t">Page and HTTP</div><div class="d">The server answers normal requests</div></div><div class="v">–</div></div>
+  <div class="card" id="c-ws"><div class="dot">2</div><div><div class="t">Real-time connection (WebSocket)</div><div class="d">What the game uses to sync players</div></div><div class="v">–</div></div>
+  <div class="card" id="c-lat"><div class="dot">3</div><div><div class="t">Lag (round trip)</div><div class="d">20 pings; under 150 ms is great</div></div><div class="v">–</div></div>
+  <div class="card" id="c-burst"><div class="dot">4</div><div><div class="t">Game-like traffic</div><div class="d">Server sends 30 updates/s for 5 s</div></div><div class="v">–</div></div>
+  <div class="card" id="c-sse"><div class="dot">5</div><div><div class="t">Fallback stream (SSE)</div><div class="d">Plan B if WebSocket is blocked</div></div><div class="v">–</div></div>
+
+  <div id="verdict">Press “Run test”.</div>
+  <p>Copy the result and send it to David:</p>
+  <textarea id="out" readonly></textarea>
+  <div class="row"><button class="alt" id="copy" type="button">Copy result</button></div>
+</main>
+<script>
+(function(){
+'use strict';
+const $=s=>document.querySelector(s);
+const R={};
+function set(id,state,val){const c=$('#c-'+id);c.querySelector('.dot').className='dot '+state;c.querySelector('.dot').textContent=state==='ok'?'✓':state==='bad'?'✕':state==='warn'?'!':c.querySelector('.dot').textContent;c.querySelector('.v').textContent=val;}
+const wsUrl=()=>(location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws';
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+async function testHttp(){set('http','run','…');const t0=performance.now();
+  try{const r=await fetch('/api/ping',{cache:'no-store'});const j=await r.json();const ms=Math.round(performance.now()-t0);R.http={ok:!!j.ok,ms};set('http','ok',ms+' ms');}
+  catch(e){R.http={ok:false,err:String(e)};set('http','bad','failed');}}
+
+function openWs(timeout){return new Promise(res=>{let done=false;let ws;try{ws=new WebSocket(wsUrl());}catch(e){return res({ok:false,err:String(e)});}
+  const to=setTimeout(()=>{if(!done){done=true;try{ws.close();}catch(e){}res({ok:false,err:'timeout'});}},timeout);
+  ws.onopen=()=>{if(!done){done=true;clearTimeout(to);res({ok:true,ws});}};
+  ws.onerror=()=>{if(!done){done=true;clearTimeout(to);res({ok:false,err:'error'});}};
+  ws.onclose=e=>{if(!done){done=true;clearTimeout(to);res({ok:false,err:'closed '+e.code});}};});}
+
+async function testWs(){set('ws','run','…');const r=await openWs(8000);R.ws={ok:r.ok,err:r.err};
+  if(!r.ok){set('ws','bad','blocked');return null;}set('ws','ok','connected');return r.ws;}
+
+function testLatency(ws){return new Promise(res=>{set('lat','run','…');const times=[];let i=0;const N=20;
+  const send=()=>{if(i>=N)return;ws.send(JSON.stringify({type:'ping',id:i,t:performance.now()}));i++;};
+  ws.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}if(m.type!=='pong')return;times.push(performance.now()-m.t);if(times.length<N)setTimeout(send,100);else finish();};
+  const finish=()=>{times.sort((a,b)=>a-b);const med=Math.round(times[Math.floor(times.length/2)]),p90=Math.round(times[Math.floor(times.length*0.9)]);
+    R.lat={median:med,p90,n:times.length};set('lat',med<150?'ok':med<300?'warn':'bad',med+' ms (p90 '+p90+')');res();};
+  setTimeout(()=>{if(times.length<N){if(times.length){finish();}else{R.lat={n:0};set('lat','bad','no reply');res();}}},8000);send();});}
+
+function testBurst(ws){return new Promise(res=>{set('burst','run','…');let got=0,total=150,first=0,last=0,maxGap=0,prev=0;
+  ws.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}if(m.type!=='snap')return;const now=performance.now();if(!first)first=now;if(prev)maxGap=Math.max(maxGap,now-prev);prev=now;last=now;got++;total=m.total;if(got>=total)finish();};
+  const finish=()=>{const pct=Math.round(got/total*100),gap=Math.round(maxGap);R.burst={received:got,expected:total,maxGapMs:gap};
+    set('burst',pct>=95&&gap<400?'ok':pct>=80?'warn':'bad',pct+'% · max gap '+gap+' ms');res();};
+  ws.send(JSON.stringify({type:'burst',seconds:5}));setTimeout(()=>{if(got<total)finish();},9000);});}
+
+function testSse(){return new Promise(res=>{set('sse','run','…');let got=0,done=false,es;
+  try{es=new EventSource('/api/sse');}catch(e){R.sse={ok:false};set('sse','bad','failed');return res();}
+  const end=ok=>{if(done)return;done=true;try{es.close();}catch(e){}R.sse={ok,received:got};set('sse',ok?'ok':got?'warn':'bad',got+'/60 events');res();};
+  es.onmessage=()=>{got++;if(got>=60)end(true);};es.onerror=()=>{if(got>=60)end(true);else if(got===0)end(false);};setTimeout(()=>end(got>=54),7000);});}
+
+function verdict(){const v=$('#verdict');let cls,txt;
+  if(R.ws&&R.ws.ok&&R.burst&&R.burst.received>=R.burst.expected*0.95){cls=R.lat&&R.lat.median<200?'ok':'warn';txt=cls==='ok'?'✅ Ready: this device and network can play the live game.':'⚠️ Works, but lag is high: playable, not ideal.';}
+  else if(R.ws&&R.ws.ok){cls='warn';txt='⚠️ Connects, but game traffic is unreliable on this network.';}
+  else if(R.sse&&R.sse.ok){cls='warn';txt='⚠️ WebSocket is blocked, but the fallback stream works (plan B possible).';}
+  else if(R.http&&R.http.ok){cls='bad';txt='❌ The page loads but real-time connections are blocked on this network.';}
+  else{cls='bad';txt='❌ The server is unreachable from this network.';}
+  v.className=cls;v.textContent=txt;
+  const ua=navigator.userAgent;
+  $('#out').value=['Call of API network test',new Date().toISOString(),'Network: '+$('#net').value,'Verdict: '+txt,'HTTP: '+JSON.stringify(R.http),'WebSocket: '+JSON.stringify(R.ws),'Lag: '+JSON.stringify(R.lat),'Traffic: '+JSON.stringify(R.burst),'SSE: '+JSON.stringify(R.sse),'Device: '+ua].join('\n');}
+
+$('#go').addEventListener('click',async()=>{const b=$('#go');b.disabled=true;b.textContent='Testing…';for(const k in R)delete R[k];
+  await testHttp();const ws=await testWs();if(ws){await testLatency(ws);await testBurst(ws);try{ws.close();}catch(e){}}else{set('lat','bad','skipped');set('burst','bad','skipped');}
+  await testSse();verdict();b.disabled=false;b.textContent='Run again';});
+$('#copy').addEventListener('click',()=>{const t=$('#out');const fallback=()=>{t.focus();t.select();};
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t.value).then(()=>{$('#copy').textContent='Copied';},fallback);else fallback();});
+})();
+</script>
+</body>
+</html>

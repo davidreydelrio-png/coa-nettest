@@ -1,0 +1,10 @@
+{
+  "name": "coa-nettest",
+  "version": "1.0.0",
+  "description": "Call of API - network connectivity test (HTTP, WebSocket, SSE). No dependencies.",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED",
+  "private": true
+}
